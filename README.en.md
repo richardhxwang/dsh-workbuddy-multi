@@ -22,7 +22,8 @@ A companion plugin for [dsh-workbuddy-connect](https://github.com/corrinehu/dsh-
 - **Automatic token renewal** — tokens close to expiry are refreshed on a schedule; accounts that need to sign in again are flagged.
 - **Credit totals** — credits of all enabled accounts are summed per edition and shown next to the composer.
 - **Two grouping modes** — one model group per edition with rotation inside it, or one model group per account to pick directly in the model selector.
-- **Reasoning effort sharing** — upstream's "Reasoning levels" detection is per-account, so switching to an untested account makes the levels disappear. When enabled (the default), levels detected under any account apply to every account on the same version. Detection happens only on the settings page (per model, all at once, or re-detect); the composer never shows the "Reasoning levels" button.
+- **Reasoning effort sharing** — upstream's "Reasoning levels" detection is per-account, so switching to an untested account makes the levels disappear. When enabled (the default), levels detected under any account apply to every account on the same version. Detection happens only on the settings page (per model, all at once, or re-detect); the composer never shows the "Reasoning levels" button. Models whose endpoint validates nothing get conventional low/medium/high/max (verified effective by measurement).
+- **Context window tiers** — models that declare multiple window sizes (e.g. GPT-6.1-Sol at 272K/600K/1M) appear as separate picker entries (`· 600K`, `· 1M`), chosen per model.
 - **One-stop upstream settings** — the upstream plugin's account state, credits, model-list refresh, model visibility, maximum context window, reasoning detection, and update check all live in this plugin's settings page; no need to visit the upstream card.
 - **Dependency auto-install** — if `dsh-workbuddy-connect` is missing, it is installed through the plugin market.
 
@@ -110,6 +111,7 @@ Usually unnecessary. To change defaults, add to the profile's `cordis.patch.yml`
     poolRoot: ''             # pool directory; empty means ~/.dsh/workbuddy-pool
     reasoningCache: true     # share detected reasoning levels across accounts; detection lives in settings, no composer button
     creditsChip: false       # the composer credit chip is hidden by default; true shows it
+    contextTiers: true       # split multi-window models into separate picker entries
 ```
 
 ## Development

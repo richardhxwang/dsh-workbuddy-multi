@@ -31,3 +31,4 @@
       #   envTakeover: true            # 接管 WORKBUDDY(_AI)_AUTH_FILE（不是 envOverride）
       #   reasoningCache: true         # 推理档位跨账号共享；检测只在设置页，输入框不出现「推理等级」按钮
       #   creditsChip: false           # 输入框积分合计 chip（默认隐藏）；true 则显示
+      #   contextTiers: true           # 多档窗口的模型拆成多个选择器条目（· 600K / · 1M）
