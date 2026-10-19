@@ -1,15 +1,17 @@
 /**
- * `lib/context-tiers.js` 的单元测试：上下文选档（拆分选择器条目 + 回环代理改写）。
+ * `lib/context-tiers.js` 的单元测试：按模型选上下文窗口（设置项驱动）。
  *
- * 风险全在两头：派生条目的形状（id/窗口/baseUrl 指向代理），和代理把合成 id
- * 换回真实 id 再转发（含 SSE 逐块透传、非 chat 路径 404、未知合成 id 400）。
+ * 覆盖的是会让用户看到的坏行为：覆盖的校验与持久化、目录档位消失后的自动失效、
+ * 「全部最高/最低/恢复默认」一把切、以及 getModels 注入时选择器仍保持一个名字。
  */
 
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import http from 'node:http'
+import { mkdtempSync, rmSync, readFileSync, existsSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
-import { ContextTiers, tierLabel, CTX_SUFFIX_RE } from '../lib/context-tiers.js'
+import { ContextTiers, tierLabel } from '../lib/context-tiers.js'
 
 const ROWS = [
   { id: 'kimi-k3', name: 'Kimi K3', contextWindow: 300000, supportedContextWindows: [300000, 1000000] },
@@ -17,11 +19,96 @@ const ROWS = [
   { id: 'plain', name: 'Plain', contextWindow: 200000 },
 ]
 
-function makeTiers({ rows = ROWS, enabled = true } = {}) {
-  const tiers = new ContextTiers({ enabled, rowsForVariant: () => rows })
-  tiers.rebuild(['ai'])
-  return tiers
+function makeTiers({ rows = ROWS, enabled = true, withFile = true } = {}) {
+  const dir = mkdtempSync(join(tmpdir(), 'wbm-ctx-'))
+  const file = withFile ? join(dir, 'context-windows.json') : undefined
+  const tiers = new ContextTiers({ enabled, rowsForVariant: () => rows, file })
+  return { tiers, file, cleanup: () => rmSync(dir, { recursive: true, force: true }) }
 }
+
+test('逐模型设置：写入生效并落盘；null 恢复默认', () => {
+  const { tiers, file, cleanup } = makeTiers()
+  try {
+    tiers.setTier('ai', 'kimi-k3', 1000000)
+    assert.equal(tiers.overrideFor('ai', 'kimi-k3'), 1000000)
+    const onDisk = JSON.parse(readFileSync(file, 'utf8'))
+    assert.equal(onDisk.tiers.ai['kimi-k3'], 1000000)
+
+    tiers.setTier('ai', 'kimi-k3', null)
+    assert.equal(tiers.overrideFor('ai', 'kimi-k3'), undefined)
+  } finally {
+    cleanup()
+  }
+})
+
+test('覆盖的档必须在目录声明里：没声明的一律拒绝', () => {
+  const { tiers, cleanup } = makeTiers()
+  try {
+    assert.throws(() => tiers.setTier('ai', 'kimi-k3', 600000), /没有声明/)
+    assert.throws(() => tiers.setTier('ai', 'plain', 500000), /没有声明/)
+  } finally {
+    cleanup()
+  }
+})
+
+test('目录档位变了（声明里没了），旧覆盖自动失效回到目录档', () => {
+  const { tiers, cleanup } = makeTiers()
+  try {
+    tiers.setTier('ai', 'kimi-k3', 1000000)
+    assert.equal(tiers.overrideFor('ai', 'kimi-k3'), 1000000)
+    // 目录更新：1M 档没了
+    tiers.rowsForVariant = () => [{ id: 'kimi-k3', contextWindow: 300000, supportedContextWindows: [300000] }]
+    assert.equal(tiers.overrideFor('ai', 'kimi-k3'), undefined)
+  } finally {
+    cleanup()
+  }
+})
+
+test('augment：只改 contextWindow 标量，不新增条目、不改名字、不动 baseUrl', () => {
+  const { tiers, cleanup } = makeTiers()
+  try {
+    tiers.setTier('ai', 'kimi-k3', 1000000)
+    const models = [
+      { id: 'kimi-k3', name: 'Kimi K3', contextWindow: 300000, baseUrl: 'http://127.0.0.1:39999/v1' },
+      { id: 'plain', name: 'Plain', contextWindow: 200000, baseUrl: 'http://127.0.0.1:39999/v1' },
+    ]
+    const out = tiers.augment('ai', models)
+    assert.equal(out.length, 2, '不新增条目')
+    assert.equal(out[0].name, 'Kimi K3', '名字不变')
+    assert.equal(out[0].contextWindow, 1000000)
+    assert.equal(out[0].baseUrl, 'http://127.0.0.1:39999/v1', 'baseUrl 不动')
+    assert.equal(out[1].contextWindow, 200000)
+  } finally {
+    cleanup()
+  }
+})
+
+test('一把切：max/min/default', () => {
+  const { tiers, cleanup } = makeTiers()
+  try {
+    tiers.setAll('ai', 'max')
+    assert.equal(tiers.overrideFor('ai', 'kimi-k3'), 1000000)
+    assert.equal(tiers.overrideFor('ai', 'gpt-6.1-sol'), 1000000)
+    tiers.setAll('ai', 'min')
+    assert.equal(tiers.overrideFor('ai', 'kimi-k3'), 300000)
+    assert.equal(tiers.overrideFor('ai', 'gpt-6.1-sol'), 272000)
+    tiers.setAll('ai', 'default')
+    assert.equal(tiers.overrideFor('ai', 'kimi-k3'), undefined)
+  } finally {
+    cleanup()
+  }
+})
+
+test('开关关闭：覆盖一律不注入', () => {
+  const { tiers, cleanup } = makeTiers({ enabled: false })
+  try {
+    tiers.setTier('ai', 'kimi-k3', 1000000)
+    const models = [{ id: 'kimi-k3', contextWindow: 300000 }]
+    assert.equal(tiers.augment('ai', models)[0].contextWindow, 300000)
+  } finally {
+    cleanup()
+  }
+})
 
 test('tierLabel：整千整兆用紧凑标记', () => {
   assert.equal(tierLabel(300000), '300K')
@@ -29,98 +116,18 @@ test('tierLabel：整千整兆用紧凑标记', () => {
   assert.equal(tierLabel(272000), '272K')
 })
 
-test('派生表：多档窗口的模型各拆出非当前档；单档模型不拆', () => {
-  const tiers = makeTiers()
-  const ids = [...tiers.tiers.keys()].sort()
-  assert.deepEqual(ids, ['gpt-6.1-sol--ctx1000000', 'gpt-6.1-sol--ctx600000', 'kimi-k3--ctx1000000'])
-  assert.equal(tiers.tiers.get('kimi-k3--ctx1000000').baseId, 'kimi-k3')
-  assert.ok(CTX_SUFFIX_RE.test('kimi-k3--ctx1000000'))
-})
-
-test('augment：合成条目带窗口与代理 baseUrl，原条目不动；代理未起时不加', async () => {
-  const tiers = makeTiers()
-  const models = [{ id: 'kimi-k3', name: 'Kimi K3', contextWindow: 300000, baseUrl: 'http://127.0.0.1:39999/v1' }]
-  assert.equal(tiers.augment('ai', models).length, 1, '代理没起监听前原样返回')
-  await tiers.start()
+test('status：按 variant 给出可选档与当前选择（设置页逐行选择器的数据）', () => {
+  const { tiers, cleanup } = makeTiers()
   try {
-    const out = tiers.augment('ai', models)
-    assert.equal(out.length, 2)
-    const syn = out[1]
-    assert.equal(syn.id, 'kimi-k3--ctx1000000')
-    assert.equal(syn.name, 'Kimi K3 · 1M')
-    assert.equal(syn.contextWindow, 1000000)
-    assert.equal(syn.baseUrl, `http://127.0.0.1:${tiers.port}/v1`)
-    assert.equal(models[0].baseUrl, 'http://127.0.0.1:39999/v1', '原条目不被改写')
+    tiers.setTier('ai', 'kimi-k3', 1000000)
+    const s = tiers.status()
+    assert.equal(s.enabled, true)
+    assert.equal(s.overridden, 1)
+    assert.deepEqual(s.tiers.ai['kimi-k3'].options, [300000, 1000000])
+    assert.equal(s.tiers.ai['kimi-k3'].current, 1000000)
+    assert.equal(s.tiers.ai['gpt-6.1-sol'].current, null)
+    assert.equal(s.tiers.ai['plain'], undefined)
   } finally {
-    await tiers.stop()
-  }
-})
-
-test('代理：把合成 id 换回真实 id 再转发，SSE 逐块透传', async () => {
-  // 假上游 shim：记录收到的 body，回两段 SSE。
-  const seen = []
-  const upstream = http.createServer(async (req, res) => {
-    const chunks = []
-    for await (const c of req) chunks.push(c)
-    seen.push({ url: req.url, auth: req.headers.authorization, body: JSON.parse(Buffer.concat(chunks).toString('utf8')) })
-    res.writeHead(200, { 'Content-Type': 'text/event-stream' })
-    res.write('data: {"a":1}\n\n')
-    res.write('data: [DONE]\n\n')
-    res.end()
-  })
-  await new Promise((r) => upstream.listen(0, '127.0.0.1', r))
-  const upstreamPort = upstream.address().port
-
-  const tiers = makeTiers()
-  await tiers.start()
-  try {
-    const models = [{ id: 'kimi-k3', name: 'Kimi K3', contextWindow: 300000, baseUrl: `http://127.0.0.1:${upstreamPort}/v1` }]
-    tiers.augment('ai', models) // 让代理学到上游地址
-    const response = await fetch(`http://127.0.0.1:${tiers.port}/v1/chat/completions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer shim-token' },
-      body: JSON.stringify({ model: 'kimi-k3--ctx1000000', messages: [] }),
-    })
-    assert.equal(response.status, 200)
-    const text = await response.text()
-    assert.ok(text.includes('[DONE]'))
-    assert.equal(seen.length, 1)
-    assert.equal(seen[0].body.model, 'kimi-k3', '上游必须收到真实 id')
-    assert.equal(seen[0].auth, 'Bearer shim-token', '鉴权头原样透传')
-    assert.equal(seen[0].url, '/v1/chat/completions')
-  } finally {
-    await tiers.stop()
-    upstream.close()
-  }
-})
-
-test('代理：未知合成 id 400，非 /v1/ 路径 404，坏 JSON 400', async () => {
-  const tiers = makeTiers()
-  await tiers.start()
-  try {
-    const unknown = await fetch(`http://127.0.0.1:${tiers.port}/v1/chat/completions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'nope--ctx1' }),
-    })
-    assert.equal(unknown.status, 400)
-    const other = await fetch(`http://127.0.0.1:${tiers.port}/x`, { method: 'POST' })
-    assert.equal(other.status, 404)
-    const bad = await fetch(`http://127.0.0.1:${tiers.port}/v1/chat/completions`, { method: 'POST', body: 'not json' })
-    assert.equal(bad.status, 400)
-  } finally {
-    await tiers.stop()
-  }
-})
-
-test('开关关闭：rebuild 清空派生表，augment 原样返回', async () => {
-  const tiers = makeTiers({ enabled: false })
-  assert.equal(tiers.tiers.size, 0)
-  await tiers.start()
-  try {
-    const models = [{ id: 'kimi-k3', contextWindow: 300000, baseUrl: 'http://127.0.0.1:1/v1' }]
-    assert.equal(tiers.augment('ai', models).length, 1)
-  } finally {
-    await tiers.stop()
+    cleanup()
   }
 })

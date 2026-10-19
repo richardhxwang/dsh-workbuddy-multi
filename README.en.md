@@ -23,7 +23,7 @@ A companion plugin for [dsh-workbuddy-connect](https://github.com/corrinehu/dsh-
 - **Credit totals** — credits of all enabled accounts are summed per edition and shown next to the composer.
 - **Two grouping modes** — one model group per edition with rotation inside it, or one model group per account to pick directly in the model selector.
 - **Reasoning effort sharing** — upstream's "Reasoning levels" detection is per-account, so switching to an untested account makes the levels disappear. When enabled (the default), levels detected under any account apply to every account on the same version. Detection happens only on the settings page (per model, all at once, or re-detect); the composer never shows the "Reasoning levels" button. Models whose endpoint validates nothing get conventional low/medium/high/max (verified effective by measurement).
-- **Context window tiers** — models that declare multiple window sizes (e.g. GPT-6.1-Sol at 272K/600K/1M) appear as separate picker entries (`· 600K`, `· 1M`), chosen per model.
+- **Context window tiers** — pick each model's context window in settings (per model, or all-highest/all-lowest at once) for models that declare multiple window sizes (e.g. GPT-6.1-Sol at 272K/600K/1M); every model stays a single picker entry.
 - **One-stop upstream settings** — the upstream plugin's account state, credits, model-list refresh, model visibility, maximum context window, reasoning detection, and update check all live in this plugin's settings page; no need to visit the upstream card.
 - **Dependency auto-install** — if `dsh-workbuddy-connect` is missing, it is installed through the plugin market.
 

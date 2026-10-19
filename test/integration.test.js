@@ -1171,3 +1171,55 @@ test('apply()：积分 chip 显示开关 —— 默认开，setCreditsChip 运�
   const failures = await host.disposeAll()
   assert.deepEqual(failures, [])
 })
+
+test('apply()：上下文选档 —— 逐模型选/一把切/恢复默认，写进注入链路与 status', async (t) => {
+  const env = await makeIsolatedEnv(t)
+  await env.put('ai', aiDoc('uid-ctx'))
+  // AI 目录里放一个有两档窗口的模型
+  await writeFile(
+    join(env.dshHome, '.workbuddy-ai-catalog.json'),
+    JSON.stringify({
+      version: 1,
+      entries: {
+        'uid-ctx:': {
+          account: 'uid-ctx:',
+          fetchedAtMs: Date.now(),
+          models: [{ id: 'kimi-k3', name: 'Kimi K3', contextWindow: 300000, supportedContextWindows: [300000, 1000000] }],
+        },
+      },
+    }),
+  )
+
+  const host = new FakeHost()
+  teardown(t, host)
+  apply(
+    host,
+    { poolRoot: env.poolRoot, pinned: false, scanMs: 60_000, keepalive: false, credits: false, healBaseline: false },
+    { now: () => Date.now() },
+  )
+  const ready = await waitFor(
+    async () => {
+      const s = await readStatus(host)
+      return s.ready ? s : undefined
+    },
+    { what: '插件就绪' },
+  )
+  assert.equal(ready.contextTiers?.enabled, true)
+  assert.deepEqual(ready.contextTiers?.tiers?.ai?.['kimi-k3']?.options, [300000, 1000000])
+
+  const picked = await act(host, { action: 'setContextTier', variantKey: 'ai', model: 'kimi-k3', tokens: 1000000 })
+  assert.equal(picked.tokens, 1000000)
+  assert.equal((await readStatus(host)).contextTiers.tiers.ai['kimi-k3'].current, 1000000)
+
+  const allMax = await act(host, { action: 'setContextTiersGlobal', variantKey: 'ai', mode: 'max' })
+  assert.equal(allMax.count, 1)
+  const reset = await act(host, { action: 'setContextTiersGlobal', variantKey: 'ai', mode: 'default' })
+  assert.equal(reset.cleared, true)
+  assert.equal((await readStatus(host)).contextTiers.tiers.ai['kimi-k3'].current, null)
+
+  const bad = await host.call(ACTION, { method: 'POST', body: { action: 'setContextTier', variantKey: 'ai', model: 'kimi-k3', tokens: 600000 } })
+  assert.equal(bad.statusCode, 400, '目录没声明的档必须 400')
+
+  const failures = await host.disposeAll()
+  assert.deepEqual(failures, [])
+})
