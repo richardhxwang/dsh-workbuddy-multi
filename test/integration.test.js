@@ -1155,15 +1155,15 @@ test('apply()：积分 chip 显示开关 —— 默认开，setCreditsChip 运�
     },
     { what: '插件就绪' },
   )
-  assert.equal(ready.composerChip, true, '默认应显示')
-
-  const off = await act(host, { action: 'setCreditsChip', on: false })
-  assert.equal(off.enabled, false)
-  assert.equal((await readStatus(host)).composerChip, false)
+  assert.equal(ready.composerChip, false, '默认应隐藏')
 
   const on = await act(host, { action: 'setCreditsChip', on: true })
   assert.equal(on.enabled, true)
   assert.equal((await readStatus(host)).composerChip, true)
+
+  const off = await act(host, { action: 'setCreditsChip', on: false })
+  assert.equal(off.enabled, false)
+  assert.equal((await readStatus(host)).composerChip, false)
 
   const bad = await host.call(ACTION, { method: 'POST', body: { action: 'setCreditsChip', on: 'yes' } })
   assert.equal(bad.statusCode, 400, '非布尔值必须 400')
