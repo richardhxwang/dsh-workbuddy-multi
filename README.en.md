@@ -109,6 +109,7 @@ Usually unnecessary. To change defaults, add to the profile's `cordis.patch.yml`
     keepaliveSweepMs: 900000 # renewal check interval
     poolRoot: ''             # pool directory; empty means ~/.dsh/workbuddy-pool
     reasoningCache: true     # share detected reasoning levels per version+model and hide the composer's "Reasoning levels" button once known
+    creditsChip: true        # show the pooled credit total next to the composer; false hides it
 ```
 
 ## Development

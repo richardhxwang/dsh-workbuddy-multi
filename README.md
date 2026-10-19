@@ -109,6 +109,7 @@ dsh plugin add dsh-workbuddy-connect
     keepaliveSweepMs: 900000 # 续期检查间隔
     poolRoot: ''             # 账号池目录，留空为 ~/.dsh/workbuddy-pool
     reasoningCache: true     # 推理档位按「版本+模型」跨账号共享，已有结果时隐藏「推理等级」按钮
+    creditsChip: true        # 输入框右侧显示账号池积分合计 chip；false 则隐藏
 ```
 
 ## 开发

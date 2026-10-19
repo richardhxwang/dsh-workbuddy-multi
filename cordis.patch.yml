@@ -30,3 +30,4 @@
       #   scanMs: 60000                # 扫描桌面 auth 文件与导入目录的间隔
       #   envTakeover: true            # 接管 WORKBUDDY(_AI)_AUTH_FILE（不是 envOverride）
       #   reasoningCache: true         # 推理档位按「版本+模型」跨账号共享，已有结果时隐藏「推理等级」按钮
+      #   creditsChip: true            # 输入框右侧的账号池积分合计 chip；false 则隐藏

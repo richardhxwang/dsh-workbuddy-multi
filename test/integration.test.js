@@ -1136,3 +1136,38 @@ test('apply()：推理档位共享 —— status 暴露汇总清单，setReasoni
   const failures = await host.disposeAll()
   assert.deepEqual(failures, [])
 })
+
+test('apply()：积分 chip 显示开关 —— 默认开，setCreditsChip 运行时可切，status 如实报告', async (t) => {
+  const env = await makeIsolatedEnv(t)
+  await env.put('ai', aiDoc('uid-chip'))
+
+  const host = new FakeHost()
+  teardown(t, host)
+  apply(
+    host,
+    { poolRoot: env.poolRoot, pinned: false, scanMs: 60_000, keepalive: false, credits: false, healBaseline: false },
+    { now: () => Date.now() },
+  )
+  const ready = await waitFor(
+    async () => {
+      const s = await readStatus(host)
+      return s.ready ? s : undefined
+    },
+    { what: '插件就绪' },
+  )
+  assert.equal(ready.composerChip, true, '默认应显示')
+
+  const off = await act(host, { action: 'setCreditsChip', on: false })
+  assert.equal(off.enabled, false)
+  assert.equal((await readStatus(host)).composerChip, false)
+
+  const on = await act(host, { action: 'setCreditsChip', on: true })
+  assert.equal(on.enabled, true)
+  assert.equal((await readStatus(host)).composerChip, true)
+
+  const bad = await host.call(ACTION, { method: 'POST', body: { action: 'setCreditsChip', on: 'yes' } })
+  assert.equal(bad.statusCode, 400, '非布尔值必须 400')
+
+  const failures = await host.disposeAll()
+  assert.deepEqual(failures, [])
+})
