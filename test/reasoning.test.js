@@ -354,3 +354,35 @@ test('status：汇总清单带 shared 标记，客户端据此隐藏「推理等
     share.stop()
   })
 })
+
+test('惯例档族：目录声明了思考默认档（无档位列表）的模型也注入 low/medium/high/max', () => {
+  withHome((home) => {
+    const fixed = {
+      id: 'kimi-k3',
+      name: 'Kimi K3',
+      reasoning: { supports: true, onlyReasoning: true, canDisableThinking: false, defaultEffort: 'medium' },
+      supportsImages: false,
+    }
+    writeVariant(home, 'ai', { catalog: [fixed], records: {} })
+    const { share } = makeShare({ home })
+    share.refresh()
+    const bare = { id: 'kimi-k3', reasoning: false }
+    const got = share.overrideModel({ key: 'ai', routeId: 'workbuddy-ai', region: 'global' }, bare)
+    assert.equal(got.reasoning, true)
+    assert.deepEqual(got.thinkingLevelMap, {
+      off: null, minimal: null, low: 'low', medium: 'medium', high: 'high', xhigh: null, max: 'max',
+    })
+    share.stop()
+  })
+})
+
+test('惯例档族：没有 defaultEffort 的候选不误注入（保持纯候选）', () => {
+  withHome((home) => {
+    writeVariant(home, 'ai', { catalog: [MODEL], records: {} })
+    const { share } = makeShare({ home })
+    share.refresh()
+    const bare = { id: MODEL.id, reasoning: false }
+    assert.equal(share.overrideModel({ key: 'ai', routeId: 'workbuddy-ai', region: 'global' }, bare), bare)
+    share.stop()
+  })
+})
