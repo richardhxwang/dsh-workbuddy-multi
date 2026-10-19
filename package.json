@@ -2,7 +2,7 @@
   "name": "dsh-workbuddy-multi",
   "displayName": "DSH WorkBuddy Multi-Account",
   "description": "Multi-account companion for dsh-workbuddy-connect · dsh-workbuddy-connect 的多账号伴侣插件",
-  "version": "0.4.5",
+  "version": "0.4.6",
   "license": "MIT",
   "author": "richardhxwang",
   "repository": {
