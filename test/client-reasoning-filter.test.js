@@ -78,13 +78,13 @@ function makeWorld({ multiDoc, upstreamDoc } = {}) {
   return world
 }
 
-test('已知模型从 candidates 与 results 里同时消失（按钮的两个可见性来源都被掐掉）', async () => {
+test('开关开启时 candidates 与 results 都清空（「推理等级」按钮不进输入框，检测只在设置页）', async () => {
   const world = makeWorld()
   const dispose = world.internals.installReasoningFilter()
   try {
     const response = await world.window.fetch('/plugins/dsh-workbuddy-connect/ai/status')
     const doc = await response.json()
-    assert.deepEqual(doc.probe.candidates, ['m-unknown'])
+    assert.deepEqual(doc.probe.candidates, [])
     assert.deepEqual(doc.probe.results, [])
     assert.equal(doc.status, 'signed-in', '文档其余部分原样保留')
     assert.equal(doc.probeKey, 'k')
