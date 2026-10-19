@@ -22,6 +22,8 @@ A companion plugin for [dsh-workbuddy-connect](https://github.com/corrinehu/dsh-
 - **Automatic token renewal** — tokens close to expiry are refreshed on a schedule; accounts that need to sign in again are flagged.
 - **Credit totals** — credits of all enabled accounts are summed per edition and shown next to the composer.
 - **Two grouping modes** — one model group per edition with rotation inside it, or one model group per account to pick directly in the model selector.
+- **Reasoning effort sharing** — upstream's "Reasoning levels" detection is per-account, so switching to an untested account makes the levels disappear. When enabled (the default), levels detected under any account apply to every account on the same version, and the composer's "Reasoning levels" button disappears once a result exists. Detect models one by one, all at once, or re-detect from the settings page.
+- **One-stop upstream settings** — the upstream plugin's account state, credits, model-list refresh, model visibility, maximum context window, reasoning detection, and update check all live in this plugin's settings page; no need to visit the upstream card.
 - **Dependency auto-install** — if `dsh-workbuddy-connect` is missing, it is installed through the plugin market.
 
 ## Install
@@ -106,6 +108,7 @@ Usually unnecessary. To change defaults, add to the profile's `cordis.patch.yml`
     keepalive: true          # automatic token renewal
     keepaliveSweepMs: 900000 # renewal check interval
     poolRoot: ''             # pool directory; empty means ~/.dsh/workbuddy-pool
+    reasoningCache: true     # share detected reasoning levels per version+model and hide the composer's "Reasoning levels" button once known
 ```
 
 ## Development

@@ -11,6 +11,7 @@
  */
 
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -1031,4 +1032,107 @@ test('apply()：把 healBaseline 关掉 → 愈合器完全不工作，status �
   const failures = await host.disposeAll()
   assert.deepEqual(failures, [])
   assert.deepEqual(host.leaks(), [], `卸载后仍有资源存活：${JSON.stringify(host.leaks())}`)
+})
+
+test('apply()：推理档位共享 —— status 暴露汇总清单，setReasoningCache 运行时可切，包装上游 adapter 注入档位', async (t) => {
+  const env = await makeIsolatedEnv(t)
+  await env.put('ai', aiDoc('uid-ai-1'))
+
+  // 上游的 probe/catalog 文件（写在隔离的 DSH_HOME 里）：另一个账号测过 deepseek-v4.1-flash。
+  const catalogRow = {
+    id: 'deepseek-v4.1-flash',
+    name: 'DeepSeek V4.1 Flash',
+    reasoning: { supports: true, canDisableThinking: true },
+    supportsImages: false,
+  }
+  const fingerprint = createHash('sha256')
+    .update(JSON.stringify({ id: catalogRow.id, reasoning: catalogRow.reasoning, supportsImages: false }))
+    .digest('hex')
+    .slice(0, 16)
+  await writeFile(
+    join(env.dshHome, '.workbuddy-ai-catalog.json'),
+    JSON.stringify({
+      version: 1,
+      entries: {
+        'uid-other:': { account: 'uid-other:', source: 'workbuddy-ai:app', fetchedAtMs: Date.now(), models: [catalogRow] },
+      },
+    }),
+  )
+  await writeFile(
+    join(env.dshHome, '.workbuddy-ai-probe.json'),
+    JSON.stringify({
+      version: 2,
+      records: {
+        'uid-other:': {
+          'deepseek-v4.1-flash': {
+            fingerprint,
+            validation: 'validating',
+            efforts: ['low', 'medium', 'high'],
+            probedAtMs: Date.now(),
+            pluginVersion: '0.7.8',
+            account: 'uid-other:',
+          },
+        },
+      },
+    }),
+  )
+
+  const host = new FakeHost()
+  teardown(t, host)
+
+  // 形状与上游 WorkBuddyPiAiAdapter 一致的假 adapter（占住上游的 route id）。
+  const piProvider = { id: 'workbuddy-ai', getModels: () => [{ id: 'deepseek-v4.1-flash', name: 'DeepSeek V4.1 Flash', reasoning: false }] }
+  const profile = { provider: 'workbuddy-ai', piProvider }
+  const upstreamAdapter = { config: { profiles: () => new Map([['workbuddy-ai', profile]]) } }
+  host.llm.registerAdapter(['workbuddy-ai'], upstreamAdapter)
+
+  apply(
+    host,
+    { poolRoot: env.poolRoot, pinned: false, scanMs: 60_000, keepalive: false, credits: false, healBaseline: false },
+    { now: () => Date.now() },
+  )
+
+  const ready = await waitFor(
+    async () => {
+      const s = await readStatus(host)
+      return s.ready ? s : undefined
+    },
+    { what: '插件就绪' },
+  )
+
+  assert.equal(ready.reasoning?.enabled, true, '默认应开启')
+  const models = ready.reasoning?.variants?.ai?.models ?? []
+  assert.equal(models.length, 1, `汇总清单应含那一条记录：${JSON.stringify(ready.reasoning)}`)
+  assert.equal(models[0].id, 'deepseek-v4.1-flash')
+  assert.deepEqual(models[0].efforts, ['low', 'medium', 'high'])
+  assert.equal(models[0].shared, true)
+
+  // 包装生效：getModels 出来的描述符带上了档位（注入路径真跑通）。
+  await waitFor(
+    () => {
+      const models = piProvider.getModels()
+      return models[0]?.reasoning === true ? models : undefined
+    },
+    { what: '上游 adapter 的 getModels 注入生效' },
+  )
+  assert.deepEqual(piProvider.getModels()[0].thinkingLevelMap?.low, 'low')
+
+  // 运行时关闭：包装被还原，status 如实报告。
+  const off = await act(host, { action: 'setReasoningCache', on: false })
+  assert.equal(off.enabled, false)
+  await waitFor(
+    () => (piProvider.getModels()[0]?.reasoning === false ? true : undefined),
+    { what: '关闭后还原上游 getModels' },
+  )
+  assert.equal((await readStatus(host)).reasoning?.enabled, false)
+
+  const on = await act(host, { action: 'setReasoningCache', on: true })
+  assert.equal(on.enabled, true)
+  await waitFor(
+    () => (piProvider.getModels()[0]?.reasoning === true ? true : undefined),
+    { what: '重开后再次注入' },
+  )
+
+  const failures = await host.disposeAll()
+  assert.deepEqual(failures, [])
 })

@@ -65,6 +65,8 @@ export class FakeHost {
     this.disposed = false
 
     this.llm = {
+      /* 真宿主的 LlmRuntime 把注册表放在公开字段 `adapters` 上（reasoning 共享要读） */
+      adapters: this.adapters,
       registerAdapter: (routeIds, adapter) => {
         const ids = Array.isArray(routeIds) ? routeIds : [routeIds]
         for (const id of ids) {
