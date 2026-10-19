@@ -13,7 +13,7 @@
 本插件的存在也不影响上游。
 
 除了被动收割（从桌面 App 抓、从文件导入），还可以**主动扫码登录**新账号——走 WorkBuddy
-官方登录页，本插件只做转发与脱敏；以及**保活**：定时给快过期的账号换 access token，
+官方登录页，本插件只做转发与脱敏；以及**自动续期**：定时给快过期的账号换 access token，
 并把「需要重新登录」的账号单独标出来，而不是让它们静默失效。
 
 ---
@@ -277,7 +277,7 @@ ls -la ~/.dsh/workbuddy-pool/accounts/cn/  ~/.dsh/workbuddy-pool/accounts/ai/
 
 登录成功后账号立刻能用；它自己的**独立模型组**仍然遵守限制 (c)，要宿主重启才出现。
 
-## 保活
+## 自动续期
 
 卡片顶部有一条 `status().keepalive`：
 
@@ -290,10 +290,10 @@ ls -la ~/.dsh/workbuddy-pool/accounts/cn/  ~/.dsh/workbuddy-pool/accounts/ai/
 每个账号行还有一个「刷新」按钮（`refreshAccount`），立刻拿 refresh token 换一个新
 access token；失败会显示在账号行上（`lastRefreshError`）。
 
-加密信封的 CN 账号（从桌面 App 收割来的）**不会**被保活刷新——上游会在它成为当前
+加密信封的 CN 账号（从桌面 App 收割来的）**不会**被自动续期刷新——上游会在它成为当前
 账号时自己刷。这类账号不标 `needsRelogin`，也不会被反复重试。
 
-### 保活只刷「闲置」账号，绝不碰当前活跃账号
+### 自动续期只刷「闲置」账号，绝不碰当前活跃账号
 
 这条规则不是优化，是避免互相作废：
 
@@ -346,7 +346,7 @@ access token；失败会显示在账号行上（`lastRefreshError`）。
 | 刷新积分                | `refreshCredits`                           | `variantKey?, force?`    |
 
 顶部还显示 `status().warnings`（其中 `authFile` 冲突那条会用醒目样式）、
-`status().keepalive`（保活巡检状态），以及 `status().pinned`（哪些账号已被暴露为独立模型组）。
+`status().keepalive`（自动续期巡检状态），以及 `status().pinned`（哪些账号已被暴露为独立模型组）。
 
 删除账号只移除**本地快照**，不会把桌面 App 里的账号登出。
 
@@ -475,8 +475,8 @@ status 文档（字段齐全、只是 `accounts` 为空），目的就是让卡�
 | 登录一直停在 `11217:login ing...`           | 扫码还没完成。600 秒后链接失效，点「重新生成链接」                                              |
 | 登录报「登录已过期 / 未知的 loginId」       | 宿主已回收该登录，重新生成一条                                                                  |
 | 某个账号点「刷新」报 refresh token 已被吊销 | 这个账号**无法自动恢复**，只会标 `needsRelogin`；重新扫码或从桌面 App 重新抓一次                |
-| 账号行出现「需要重新登录」                  | 同上。不要反复点刷新——保活会跳过它，不会无限重试                                                |
-| 保活显示「已停止」                          | 宿主的调度器不可用（`status().keepalive.unavailable` 里会写原因）；账号仍可用，只是不再自动续期 |
+| 账号行出现「需要重新登录」                  | 同上。不要反复点刷新——自动续期会跳过它，不会无限重试                                                |
+| 自动续期显示「已停止」                          | 宿主的调度器不可用（`status().keepalive.unavailable` 里会写原因）；账号仍可用，只是不再自动续期 |
 | 「刚刚加入」的高亮一直不消失                | 点一次卡片顶部的「刷新」，或切到别的 variant 再回来                                             |
 
 查看 DSH 日志里本插件的客户端降级信息：搜索
@@ -510,7 +510,7 @@ slot 注册失败（例如 DSH 的 slot API 有破坏性变更），但它**不�
   不受影响。
 - **R5**：每个 pinned 路由要各起一个回环 shim；账号多时端口与句柄必须正确释放
   （`PinnedRoutes.dispose()`）。
-- **R7**：保活与上游可能同时持有同一个账号的 refresh token。已用 `skipActive: true`
+- **R7**：自动续期与上游可能同时持有同一个账号的 refresh token。已用 `skipActive: true`
   （不碰当前活跃账号）预防，但**真机未复现**过作废现象——收益只能靠「之后不再出现
   无端 `needsRelogin`」间接印证。
 - **R8（已自动修复）**：上游在**启动时**若读不到凭据，会把该档位的目录 `setVisible(false)` ⇒
@@ -545,7 +545,7 @@ slot 注册失败（例如 DSH 的 slot API 有破坏性变更），但它**不�
 | `lib/rotation.js`      | 环境变量接管 + 轮换策略 + 429 换号                               |
 | `lib/pinned.js`        | 每账号独立模型组                                                 |
 | `lib/login.js`         | 主动登录：转发上游官方扫码登录、轮询、脱敏后写池子               |
-| `lib/keepalive.js`     | 保活巡检：定时刷新即将过期的账号，跳过需重登/加密信封账号        |
+| `lib/keepalive.js`     | 自动续期巡检：定时刷新即将过期的账号，跳过需重登/加密信封账号        |
 | `lib/credits.js`       | 积分合计：逐账号问上游（密文账号回落上游 status 路由）           |
 | `lib/client.js`        | 设置卡片 UI（浏览器半，`dsh.client.platform: "web"`）            |
 | `cordis.patch.yml`     | bundle patch：把本插件插进 profile 的 bundle 列表                |

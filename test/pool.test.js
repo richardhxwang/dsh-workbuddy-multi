@@ -512,7 +512,7 @@ test('未 load 就调用必须报错（防止静默空池）', async (t) => {
   assert.throws(() => pool.list('cn'), /load\(\) 必须先调用/)
 })
 
-// ── 主动登录入库 / 全池保活（PLAN §3.5.3）────────────────────────────────
+// ── 主动登录入库 / 全池自动续期（PLAN §3.5.3）────────────────────────────────
 
 /**
  * 我们自己的 OAuth 登录产物：**明文** token。
@@ -712,7 +712,7 @@ test('selectable: needsRelogin 的账号 access token 过期后必须出局，�
 
 test('明文凭据不得被「并不更新」的桌面密文副本降级覆盖', async (t) => {
   const env = await makeEnv(t)
-  // 用户先用插件 OAuth 登录了 uid-d1（明文、可自保活），桌面 App 里当时也是这个账号
+  // 用户先用插件 OAuth 登录了 uid-d1（明文、可自动续期），桌面 App 里当时也是这个账号
   await env.pool.upsertAccount('cn', oauthDoc('cn', 'uid-d1', { expiresAt: BASE + 7_200_000 }))
   const plaintext = await env.pool.readSnapshotDocument('cn', 'uid-d1')
 

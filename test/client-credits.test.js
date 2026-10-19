@@ -501,7 +501,7 @@ const step = (t, name, fn) => t.test(name, fn)
 
 /* ────────────────────────────── A 组：静态面 ────────────────────────────── */
 
-test('设置卡片（静态面）：保活、账号状态与安全边界', async (t) => {
+test('设置卡片（静态面）：自动续期、账号状态与安全边界', async (t) => {
   const s = createSandbox(SOURCE)
   t.after(() => s.unmount())
 
@@ -511,9 +511,9 @@ test('设置卡片（静态面）：保活、账号状态与安全边界', async
   await step(t, '挂载后会向宿主 GET 一次 status', () =>
     assert.ok(s.state.statusGets >= 1, `statusGets=${s.state.statusGets}`)
   )
-  await step(t, '保活状态区渲染出标题', () => assert.ok(view.has('keepaliveHeading')))
-  await step(t, '保活运行中时显示「运行中」徽标', () => assert.ok(view.has('keepaliveRunning')))
-  await step(t, '保活统计放在悬停提示里，不占正文', () =>
+  await step(t, '自动续期状态区渲染出标题', () => assert.ok(view.has('keepaliveHeading')))
+  await step(t, '自动续期运行中时显示「运行中」徽标', () => assert.ok(view.has('keepaliveRunning')))
+  await step(t, '自动续期统计放在悬停提示里，不占正文', () =>
     assert.ok(findProp(view.tree, 'title', 'keepaliveStats'), '状态栏的 title 应当是 keepaliveStats')
   )
   await step(t, '续期全部成功时不显示失败文案', () => assert.ok(!view.has('keepaliveFailed')))

@@ -323,7 +323,7 @@ test('apply()：pinned 开启时注册独立模型组，且绝不占用上游基
   assert.deepEqual(host.leaks(), [], `卸载后仍有资源存活：${JSON.stringify(host.leaks())}`)
 })
 
-// ── 主动登录 / 保活 / 脱敏（PLAN §3.5）─────────────────────────────────
+// ── 主动登录 / 自动续期 / 脱敏（PLAN §3.5）─────────────────────────────────
 
 const CN_ENDPOINT = 'https://www.codebuddy.cn'
 const AI_ENDPOINT = 'https://www.workbuddy.ai'
@@ -472,7 +472,7 @@ test('apply()：扫码登录→入库→手动刷新；加密账号如实拒绝�
     return s.ready ? s : undefined
   }, { what: '插件就绪' })
   assert.equal(ready.variants.find((v) => v.key === 'cn').accounts.length, 1)
-  // 新契约：status 必须带上这两个键，卡片靠它们渲染登录面板与保活线
+  // 新契约：status 必须带上这两个键，卡片靠它们渲染登录面板与续期状态
   assert.ok(Array.isArray(ready.logins), 'status.logins 必须是数组')
   assert.equal(typeof ready.keepalive, 'object', 'status.keepalive 必须是对象')
 
@@ -550,7 +550,7 @@ test('apply()：扫码登录→入库→手动刷新；加密账号如实拒绝�
   assert.deepEqual(host.leaks(), [], `卸载后仍有资源存活：${JSON.stringify(host.leaks())}`)
 })
 
-test('apply()：保活只刷新闲置账号，绝不碰当前活跃账号（refresh token 一次性轮换，不能和上游抢）', async (t) => {
+test('apply()：自动续期只刷新闲置账号，绝不碰当前活跃账号（refresh token 一次性轮换，不能和上游抢）', async (t) => {
   const env = await makeIsolatedEnv(t)
   const NOW = Date.now()
   /*
@@ -584,7 +584,7 @@ test('apply()：保活只刷新闲置账号，绝不碰当前活跃账号（refr
     { fetchImpl: upstream.fetchImpl, now: () => NOW },
   )
 
-  // 两个账号都要在保活第一轮巡检之前就位（import 目录由 bootstrap 吸收，早于 keepalive.start）。
+  // 两个账号都要在自动续期第一轮巡检之前就位（import 目录由 bootstrap 吸收，早于 keepalive.start）。
   const booted = await waitFor(
     async () => {
       const s = await readStatus(host)
@@ -607,7 +607,7 @@ test('apply()：保活只刷新闲置账号，绝不碰当前活跃账号（refr
       const account = s.variants.find((v) => v.key === 'ai').accounts.find((a) => a.uid === idleUid)
       return account && account.expiresAt === AI_REFRESHED_AT ? account : undefined
     },
-    { what: '保活把闲置账号刷新到新的到期时间' },
+    { what: '自动续期把闲置账号刷新到新的到期时间' },
   )
   assert.equal(typeof refreshed.lastRefreshAt, 'number')
   assert.equal(refreshed.lastRefreshError, undefined)
@@ -621,7 +621,7 @@ test('apply()：保活只刷新闲置账号，绝不碰当前活跃账号（refr
       const s = await readStatus(host)
       return s.keepalive && s.keepalive.stats.ok >= 1 ? s : undefined
     },
-    { what: '保活这一轮结算完成（stats.ok 已累加）' },
+    { what: '自动续期这一轮结算完成（stats.ok 已累加）' },
   )
   const activeRow = status.variants.find((v) => v.key === 'ai').accounts.find((a) => a.uid === activeUid)
   assert.equal(activeRow.expiresAt, NOW + 60_000, '活跃账号的到期时间必须保持原样（它归上游管）')
@@ -650,7 +650,7 @@ test('apply()：保活只刷新闲置账号，绝不碰当前活跃账号（refr
     assert.ok(call.url.startsWith(`${AI_ENDPOINT}/`), `只该打国际版端点，实际 ${call.url}`)
   }
 
-  // 保活状态要能从 status 里读到（卡片用它显示成功/失败/跳过）
+  // 自动续期状态要能从 status 里读到（卡片用它显示成功/失败/跳过）
   assert.equal(status.keepalive.running, true)
   assert.equal(status.keepalive.unavailable, undefined)
   assert.ok(status.keepalive.stats.ok >= 1)

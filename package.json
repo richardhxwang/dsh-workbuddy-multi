@@ -1,7 +1,7 @@
 {
   "name": "dsh-workbuddy-multi",
   "displayName": "DSH WorkBuddy Multi-Account",
-  "description": "WorkBuddy multi-account companion for dsh-workbuddy-connect: account pool, rotation on rate limits, QR sign-in, token auto-renewal · WorkBuddy 多账号伴侣插件",
+  "description": "Multi-account companion for dsh-workbuddy-connect · dsh-workbuddy-connect 的多账号伴侣插件",
   "version": "0.3.0",
   "license": "MIT",
   "author": "richardhxwang",
@@ -20,8 +20,8 @@
     "workbuddy",
     "model-provider",
     "multi-account",
-    "扫码登录",
-    "keepalive"
+    "rotation",
+    "token-renewal"
   ],
   "type": "module",
   "engines": {

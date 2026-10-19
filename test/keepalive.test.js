@@ -1575,7 +1575,7 @@ test('KeepAliveScheduler.stop: 停下后时钟再怎么走也不再扫（无残�
   const settled = calls.length
   scheduler.stop()
   await clock.advance(600_000)
-  assert.equal(calls.length, settled, 'stop 后不得再有保活请求')
+  assert.equal(calls.length, settled, 'stop 后不得再有自动续期请求')
   assert.equal(clock.pending, 0)
   assert.equal(scheduler.status().running, false)
 })
