@@ -191,3 +191,17 @@ test('dispose 还原 window.fetch，且重复安装幂等', async () => {
   assert.equal(world.calls.length, 1)
   dispose2()
 })
+
+test('回归：设置面板的读取走未过滤通道（filter 只吃输入框按钮的数据）', async () => {
+  const world = makeWorld()
+  const dispose = world.internals.installReasoningFilter()
+  try {
+    const filtered = await (await world.window.fetch('/plugins/dsh-workbuddy-connect/ai/status')).json()
+    assert.deepEqual(filtered.probe.candidates, [], '被包装的 fetch 应清空 candidates')
+    const panel = await (await world.internals.upstreamFetch('/plugins/dsh-workbuddy-connect/ai/status', { headers: {} })).json()
+    assert.deepEqual(panel.probe.candidates, ['m-known', 'm-unknown'], '面板通道必须看到完整列表')
+    assert.equal(panel.probe.results.length, 1)
+  } finally {
+    dispose()
+  }
+})
