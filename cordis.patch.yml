@@ -1,0 +1,31 @@
+# dsh-workbuddy-multi — cordis bundle patch
+#
+# Registered exactly the way the upstream plugin registers itself: one `insert`
+# entry appending one plugin to the profile's bundle list.
+#
+# Nothing here patches, wraps or overrides dsh-workbuddy-connect. The companion
+# integrates through the upstream package's public exports only (see PLAN.md
+# §2.2), plus the documented WORKBUDDY_AUTH_FILE / WORKBUDDY_AI_AUTH_FILE
+# environment variables it points at its own per-account pool files.
+#
+# `id` is deliberately NOT `llm-workbuddy` (the upstream plugin's id): the two
+# plugins coexist, and a duplicated id would collide in the bundle.
+- insert:
+    - id: llm-workbuddy-multi
+      name: dsh-workbuddy-multi
+      # `config:` is intentionally omitted: the host's Config schema in
+      # lib/index.js supplies every default, and that schema (not this file) is
+      # authoritative. Add a block here only to override a default.
+      #
+      # The key names below are copied from that schema — do not guess them:
+      # schemastery silently ignores a key that is not in the schema.
+      #
+      # config:
+      #   poolRoot: ''                 # '' → ~/.dsh/workbuddy-pool
+      #   policy: on-rate-limit        # on-rate-limit | round-robin | manual
+      #   cooldownMs: 1800000          # 撞限流但看不出重置时刻时冷却多久（默认 30 分钟）
+      #   respectCooldown: true        # 轮换时跳过冷却中的账号
+      #   pinned: true                 # 每账号一个独立模型组（布尔，不是对象）
+      #   providerPrefix: workbuddy-m- # 独立模型组的 provider id 前缀（顶层键）
+      #   scanMs: 60000                # 扫描桌面 auth 文件与导入目录的间隔
+      #   envTakeover: true            # 接管 WORKBUDDY(_AI)_AUTH_FILE（不是 envOverride）

@@ -1,0 +1,74 @@
+{
+  "name": "dsh-workbuddy-multi",
+  "displayName": "DSH WorkBuddy Multi-Account",
+  "description": "WorkBuddy multi-account companion for dsh-workbuddy-connect: account pool, rotation on rate limits, QR sign-in, token auto-renewal · WorkBuddy 多账号伴侣插件",
+  "version": "0.3.0",
+  "license": "MIT",
+  "author": "richardhxwang",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/richardhxwang/dsh-workbuddy-multi.git"
+  },
+  "homepage": "https://github.com/richardhxwang/dsh-workbuddy-multi#readme",
+  "bugs": {
+    "url": "https://github.com/richardhxwang/dsh-workbuddy-multi/issues"
+  },
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "deepseek",
+    "workbuddy",
+    "model-provider",
+    "multi-account",
+    "扫码登录",
+    "keepalive"
+  ],
+  "type": "module",
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md",
+    "README.en.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test 'test/**/*.test.js'",
+    "pack:release": "npm pack && mv dsh-workbuddy-multi-$npm_package_version.tgz dsh-workbuddy-multi.tgz"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-api-remotes",
+        "@deepseek-ai/dsh-api-session-controller",
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-model-selection",
+        "@deepseek-ai/dsh-client-locale"
+      ],
+      "platform": "web"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/schemastery": "^3.18.5",
+    "dsh-workbuddy-connect": "^0.7.8",
+    "react": "^18.2.0"
+  },
+  "devDependencies": {
+    "@deepseek-ai/schemastery": "^3.18.5",
+    "dsh-workbuddy-connect": "^0.7.8"
+  }
+}
