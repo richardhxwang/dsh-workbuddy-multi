@@ -75,7 +75,7 @@ Each account's **⋯** menu has Renew token, Disable / Enable, Rename and Remove
 | **Per request** | Each request uses the next available account. |
 | **Manual** | Never switch automatically; only the account set as current is used. |
 
-The pause lasts until the reset time WorkBuddy reports; when it reports none, the pause is 30 minutes.
+An account is paused and switched only when WorkBuddy reports a reset time, and the pause lasts until then. Temporary limits without a reset time, such as "model busy", are not tied to an account: the account is kept and DSH retries the request.
 
 ### Model groups
 
@@ -102,7 +102,7 @@ Usually unnecessary. To change defaults, add to the profile's `cordis.patch.yml`
 ```yaml
 - id: llm-workbuddy-multi
   config:
-    cooldownMs: 1800000      # pause length when no reset time is known (ms)
+    cooldownMs: 1800000      # pause length for an empty quota with no reset time (ms)
     keepalive: true          # automatic token renewal
     keepaliveSweepMs: 900000 # renewal check interval
     poolRoot: ''             # pool directory; empty means ~/.dsh/workbuddy-pool

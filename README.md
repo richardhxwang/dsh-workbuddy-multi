@@ -75,7 +75,7 @@ dsh plugin add dsh-workbuddy-connect
 | **逐次轮换** | 每个请求依次使用下一个可用账号。 |
 | **手动指定** | 不自动切换，只使用手动设为当前的账号。 |
 
-暂停时长优先使用 WorkBuddy 返回的额度恢复时间；返回里没有时间的，默认暂停 30 分钟。
+只有 WorkBuddy 返回了额度恢复时间的限流才会暂停账号并切换，暂停到该时间为止。「模型繁忙」这类不带恢复时间的临时限流与账号无关，不切换账号，由 DSH 自动重试。
 
 ### 模型分组
 
@@ -102,7 +102,7 @@ dsh plugin add dsh-workbuddy-connect
 ```yaml
 - id: llm-workbuddy-multi
   config:
-    cooldownMs: 1800000      # 无法得知恢复时间时的暂停时长（毫秒）
+    cooldownMs: 1800000      # 额度用尽但无法得知恢复时间时的暂停时长（毫秒）
     keepalive: true          # 令牌自动续期
     keepaliveSweepMs: 900000 # 续期检查间隔
     poolRoot: ''             # 账号池目录，留空为 ~/.dsh/workbuddy-pool

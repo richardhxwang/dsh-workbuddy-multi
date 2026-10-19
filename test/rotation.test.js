@@ -370,8 +370,9 @@ async function assertCoolingBlocksReselection(mod) {
     await feed(s, retryEvent()) // a 冷却（到 RESET_MS，2h11m 之后）
     assert.equal(s.pool.activeUid('cn'), 'uid-b')
 
-    // b 也被频控：这次文案里没有可解析时刻 → 用 config.cooldownMs 兜底（5min）
-    await feed(s, retryEvent({ retryId: 'retry-2', retry: 2, message: '请求过于频繁，请稍后再试' }))
+    // b 额度用尽：文案里没有可解析时刻 → 用 config.cooldownMs 兜底（5min）
+    // （不带时刻的 RATE_LIMIT 已不再冷却，见「模型繁忙」那组测试；兜底时长只给额度类 code）
+    await feed(s, retryEvent({ retryId: 'retry-2', retry: 2, code: 'QUOTA', message: '额度不足，请稍后再试' }))
     assert.equal(s.pool.activeUid('cn'), 'uid-b', '没有别的可用账号时应留在当前账号')
     assert.deepEqual(
       s.pool.selectableUids('cn', { at: s.clock.t }),
@@ -628,14 +629,50 @@ test('classifyRetryEvent: 没有可解析的重置时刻时用 providerRetryAfte
   assert.equal(viaProvider.resetAt, undefined)
   assert.equal(viaProvider.retryAt, T0 + 90_000)
 
-  const viaFallback = classifyRetryEvent(retryEvent({ message: '请求过于频繁' }), {
+  const viaFallback = classifyRetryEvent(retryEvent({ code: 'QUOTA', message: '额度不足' }), {
     now: T0,
     fallbackCooldownMs: 5 * MIN,
   })
   assert.equal(viaFallback.retryAt, T0 + 5 * MIN)
 
-  const neither = classifyRetryEvent(retryEvent({ message: '请求过于频繁' }), { now: T0 })
+  const neither = classifyRetryEvent(retryEvent({ code: 'QUOTA', message: '额度不足' }), { now: T0 })
   assert.equal(neither.retryAt, undefined)
+})
+
+/** 2026-10-19 18:10–18:12 实测：上游模型繁忙时的 429 原文（不带重置时刻，与账号无关）。 */
+const MODEL_BUSY_TEXT =
+  '429: {"message":"workbuddy upstream soft_rate (http 429): 模型繁忙，请换模型或稍后重试","type":"soft_rate","code":"soft_rate"}'
+
+test('classifyRetryEvent: 「模型繁忙」不是账号限流，不换号也不冷却', () => {
+  for (const provider of ['workbuddy', 'workbuddy-ai']) {
+    assert.equal(
+      classifyRetryEvent(retryEvent({ provider, message: MODEL_BUSY_TEXT }), { now: T0, fallbackCooldownMs: 30 * MIN }),
+      undefined,
+      provider,
+    )
+  }
+})
+
+test('classifyRetryEvent: 不带重置时刻也不带 Retry-After 的 RATE_LIMIT 一律不换号', () => {
+  assert.equal(
+    classifyRetryEvent(retryEvent({ message: '请求过于频繁' }), { now: T0, fallbackCooldownMs: 30 * MIN }),
+    undefined,
+  )
+})
+
+test('classifyRetryEvent: 反向——带重置时刻的 6004 文案与带 Retry-After 的 429 仍然换号', () => {
+  const reset = classifyRetryEvent(retryEvent({ message: RESET_TEXT }), { now: T0, fallbackCooldownMs: 30 * MIN })
+  assert.equal(reset.resetAt, RESET_MS)
+  const retryAfter = classifyRetryEvent(
+    retryEvent({ message: MODEL_BUSY_TEXT, failureExtra: { providerRetryAfterMs: 90_000 } }),
+    { now: T0, fallbackCooldownMs: 30 * MIN },
+  )
+  assert.equal(retryAfter.retryAt, T0 + 90_000)
+  // 额度类 code 本身就是账号级，拿不到时刻也照样按兜底时长冷却
+  for (const code of ['QUOTA', 'ACCOUNT_QUOTA']) {
+    const plan = classifyRetryEvent(retryEvent({ code, message: '额度不足' }), { now: T0, fallbackCooldownMs: 30 * MIN })
+    assert.equal(plan.retryAt, T0 + 30 * MIN, code)
+  }
 })
 
 // ── E. planCooldown ───────────────────────────────────────────────────────
