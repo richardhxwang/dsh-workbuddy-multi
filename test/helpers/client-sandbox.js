@@ -12,7 +12,7 @@ export /**
  * 装进一个**全新的世界**再跑同一套断言（照 test/rotation.test.js 的做法）。
  * 每个世界有自己的实例表、定时器和 fetch 记录，互不污染。
  */
-function createSandbox(src, { keepPage = false, document } = {}) {
+function createSandbox(src, { keepPage = false, document, localStorage } = {}) {
   /* 迷你 React：instance 由组件名 + 出现次序定位，hooks 按调用次序编号。 */
   let instances = new Map()
   let counters = new Map()
@@ -201,6 +201,8 @@ function createSandbox(src, { keepPage = false, document } = {}) {
   const gl = {}
   globalThis.window = gl
   gl.setInterval = fakeSetInterval
+  /* window.localStorage：传入的是 getter（可以抛，用来模拟隐私模式下读取即 SecurityError）。 */
+  if (localStorage !== void 0) Object.defineProperty(gl, 'localStorage', { configurable: true, get: localStorage })
   gl.clearInterval = fakeClearInterval
 
   /* 需要 DOM 的用例（页面级 toast）自带一个假 document；apply() 里的 toast 还要求 window.setTimeout 存在。 */

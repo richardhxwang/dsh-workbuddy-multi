@@ -764,3 +764,48 @@ test('snapshotPath / metaPath：不安全 uid 直接抛出（索引文件被篡�
   assert.throws(() => env.pool.snapshotPath('cn', '../../x'), /invalid-uid/)
   assert.throws(() => env.pool.metaPath('cn', '../../x'), /invalid-uid/)
 })
+
+// ── 导入：浏览器上传的字节（§29 B3）─────────────────────────────────────
+
+test('importBuffers：与 importFiles 吸收同一份字节结果一致；region 不匹配与坏内容各报 code', async (t) => {
+  const env = await makeEnv(t)
+  const okBytes = Buffer.from(rawJson(cnDoc('uid-upload-1')), 'utf8')
+  const errors = []
+  const metas = await env.pool.importBuffers(
+    'cn',
+    [
+      { name: 'ok.info', bytes: okBytes },
+      { name: 'ai.info', bytes: Buffer.from(rawJson(aiDoc('uid-ai-into-cn')), 'utf8') },
+      { name: 'junk.txt', bytes: Buffer.from('not json') },
+      { name: 'nobytes.info', bytes: 'a string, not a Buffer' },
+    ],
+    { onError: (e) => errors.push(e) },
+  )
+  assert.deepEqual(metas.map((m) => m.uid), ['uid-upload-1'])
+  assert.equal(metas[0].source, 'import')
+  assert.deepEqual(errors.map((e) => [e.path, e.error === 'region-mismatch' || e.error === 'unreadable' ? e.error : 'parse']), [
+    ['ai.info', 'region-mismatch'],
+    ['junk.txt', 'parse'],
+    ['nobytes.info', 'unreadable'],
+  ])
+  const landed = join(env.pool.importDir('cn'), 'uid-upload-1.info')
+  assert.ok((await fsp.readFile(landed)).equals(okBytes), '落地区保留原始字节')
+  assert.equal(await exists(env.pool.snapshotPath('cn', 'uid-ai-into-cn')), false)
+})
+
+test('importBuffers：uid 为穿越路径的内容被拒，池目录外不落任何文件（文件名不参与落盘路径）', async (t) => {
+  const env = await makeEnv(t)
+  const outside = await mkdtemp(join(tmpdir(), 'wbp-outside-'))
+  t.after(() => rm(outside, { recursive: true, force: true }))
+  const evilUid = `../../../../../../../../..${outside}/pwned`
+  const errors = []
+  const metas = await env.pool.importBuffers(
+    'cn',
+    [{ name: `../../../../../../..${outside}/byname.info`, bytes: Buffer.from(rawJson(cnDoc(evilUid))) }],
+    { onError: (e) => errors.push(e) },
+  )
+  assert.equal(metas.length, 0)
+  assert.ok(errors.length >= 1, '要报错')
+  assert.equal(await exists(join(outside, 'pwned.info')), false)
+  assert.equal(await exists(join(outside, 'byname.info')), false)
+})

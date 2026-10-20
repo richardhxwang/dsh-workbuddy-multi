@@ -63,7 +63,7 @@ Click **Add account**, choose China or International, create the sign-in link, o
 The **⋯** menu next to each edition also offers:
 
 - **Import current desktop app account** — reads the account signed in to the WorkBuddy desktop app.
-- **Import auth files** — enter the paths of auth files.
+- **Import auth files** — choose auth files (up to 10 at a time); when DSH runs on another machine, expand **Import by path** and enter their paths.
 
 <p align="center">
   <img src="assets/add-account-en.png" alt="Add account and the account menu" width="860">

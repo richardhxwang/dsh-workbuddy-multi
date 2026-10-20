@@ -63,7 +63,7 @@ dsh plugin add dsh-workbuddy-connect
 也可以在每个版本标题右侧的「⋯」菜单里：
 
 - **从桌面 App 导入当前账号**：读取 WorkBuddy 桌面 App 当前登录的账号。
-- **导入授权文件**：填写授权文件的路径。
+- **导入授权文件**：选择授权文件（一次最多 10 个）；DSH 不在本机运行时，可展开「按路径导入」填写路径。
 
 <p align="center">
   <img src="assets/add-account.png" alt="添加账号与账号操作菜单" width="860">

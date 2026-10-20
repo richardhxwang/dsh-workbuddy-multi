@@ -1509,3 +1509,83 @@ test('apply()：首轮积分统计等到第一个回环请求之后才发，不�
   )
   assert.deepEqual(await host.disposeAll(), [])
 })
+
+test('apply()：「需要处理」只放待办；一次性事件进 history（带时间），空池提示两边都不放', async (t) => {
+  const env = await makeIsolatedEnv(t)
+  await env.put('cn', cnDoc('uid-a'))
+
+  const host = new FakeHost()
+  teardown(t, host)
+  apply(host, { poolRoot: env.poolRoot, pinned: false, scanMs: 60_000, envTakeover: true })
+  const ready = await waitFor(
+    async () => {
+      const s = await readStatus(host)
+      return s.ready ? s : undefined
+    },
+    { what: '插件就绪' },
+  )
+  // 国际版池子是空的：rotation 启动时记了一条「暂无可用账号」，账号区自己有空状态
+  assert.ok(!ready.warnings.some((w) => w.includes('暂无可用账号')), `warnings：${JSON.stringify(ready.warnings)}`)
+  assert.deepEqual(ready.history, [])
+
+  // 只有一个账号时撞限：没有备用账号可换 —— 这是发生过一次的事件，不是待办
+  const before = Date.now()
+  await host.emit('session/event', {}, {
+    type: 'llm/retry',
+    data: {
+      provider: 'workbuddy',
+      turn: 1,
+      step: 1,
+      retry: 1,
+      failure: { code: 'RATE_LIMIT', message: '您的使用量已超出频率限制，将在 2033-05-18 11:33:20 UTC+8 重置' },
+    },
+  })
+  const after = await waitFor(
+    async () => {
+      const s = await readStatus(host)
+      return s.history.length > 0 ? s : undefined
+    },
+    { what: 'history 出现限流事件' },
+  )
+  assert.equal(after.history.length, 1)
+  assert.match(after.history[0].message, /没有其他可用账号/)
+  assert.ok(typeof after.history[0].at === 'number' && after.history[0].at >= before, '事件要带发生时间')
+  assert.ok(!after.warnings.some((w) => /没有其他可用账号/.test(w)), `事件不应进「需要处理」：${JSON.stringify(after.warnings)}`)
+})
+
+test('apply()：importContents —— 上传两份授权文件入池；逐文件报 code；超量、超大、非 base64 整体拒绝', async (t) => {
+  const env = await makeIsolatedEnv(t)
+  await env.put('cn', cnDoc('uid-a'))
+  const host = new FakeHost()
+  teardown(t, host)
+  apply(host, { poolRoot: env.poolRoot, pinned: false, scanMs: 60_000, envTakeover: true })
+  await waitFor(async () => ((await readStatus(host)).ready ? true : undefined), { what: '插件就绪' })
+
+  const b64 = (doc) => Buffer.from(JSON.stringify(doc), 'utf8').toString('base64')
+  const result = await act(host, {
+    action: 'importContents',
+    variantKey: 'cn',
+    files: [
+      { name: 'one.info', data: b64(cnDoc('uid-up-1')) },
+      { name: 'two.info', data: b64(cnDoc('uid-up-2')) },
+      { name: 'wrong-edition.info', data: b64(aiDoc('uid-ai-x')) },
+    ],
+  })
+  assert.deepEqual(result.imported.sort(), ['uid-up-1', 'uid-up-2'])
+  assert.deepEqual(result.errors.map((e) => [e.path, e.code]), [['wrong-edition.info', 'region-mismatch']])
+  assert.ok(!result.errors.some((e) => String(e.message).includes('[object Object]')), '错误信息不能是 [object Object]')
+  const cn = (await readStatus(host)).variants.find((v) => v.key === 'cn')
+  assert.equal(cn.accounts.length, 3)
+
+  const reject = async (files, pattern) => {
+    const res = await host.call(ACTION, { method: 'POST', body: { action: 'importContents', variantKey: 'cn', files } })
+    assert.equal(res.statusCode, 400, `应拒绝：${JSON.stringify(res.body)}`)
+    assert.match(String(res.body?.error), pattern)
+  }
+  await reject(Array.from({ length: 11 }, (_, i) => ({ name: `f${i}`, data: b64(cnDoc(`uid-n${i}`)) })), /最多导入 10 个/)
+  await reject([{ name: 'big.info', data: Buffer.alloc(64 * 1024 + 1, 0x20).toString('base64') }], /big\.info：超过 64 KB/)
+  await reject([{ name: 'bad.info', data: '***not base64***' }], /bad\.info：不是有效的 base64/)
+  await reject([], /非空数组/)
+  const after = (await readStatus(host)).variants.find((v) => v.key === 'cn')
+  assert.equal(after.accounts.length, 3, '被拒的请求一个账号都不能进池')
+})

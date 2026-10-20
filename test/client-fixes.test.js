@@ -37,6 +37,15 @@ function textOf(node) {
   return textOf(node.props?.children)
 }
 
+/** Connect 区默认收起（§29 B2）：要看里面的面板先把它展开。 */
+async function openConnect(s) {
+  const view = await s.settle()
+  const head = view.buttons.find((b) => textOf(b).includes('connectHeading'))
+  assert.ok(head !== void 0, '前提：Connect 区的折叠头渲染出来了')
+  if (head.props['aria-expanded'] !== true) head.props.onClick()
+  return s.settle()
+}
+
 /**
  * 给沙箱的假 fetch 套一层路由：上游 dsh-workbuddy-connect 的 AI status、指定动作的失败/副作用。
  * 其余请求交还沙箱原来的 fetch。
@@ -83,7 +92,7 @@ test('A3 选档下拉：与目录默认同值的档不再重复列出', async (t
       models: [{ id: 'kimi-k3', name: 'Kimi K3', contextWindow: 300000, maxContextWindow: 1000000 }]
     }
   })
-  let view = await s.settle()
+  let view = await openConnect(s)
   const toggle = view.buttons.find((b) => textOf(b).includes('connectModelsHeadingCount'))
   assert.ok(toggle !== void 0, '前提：国际版模型列表的折叠头渲染出来了')
   toggle.props.onClick()
@@ -213,7 +222,7 @@ test('A7 全部检测：进行中有「停止」，按下后不再测下一个�
       return { status: 200, body: { state: 'ok' } }
     }
   })
-  let view = await s.settle()
+  let view = await openConnect(s)
   view.buttons.find((b) => b.props?.children === 'connectProbeAll').props.onClick()
   view = await s.settle()
   view.buttons.find((b) => b.props?.children === 'connectProbeConfirmAction').props.onClick()
