@@ -730,3 +730,37 @@ test('明文凭据不得被「并不更新」的桌面密文副本降级覆盖',
   assert.equal(fresher.expiresAt, BASE + 99_000_000)
   assert.match(await env.pool.readSnapshotDocument('cn', 'uid-d1'), /\$wbEncrypted/)
 })
+
+// ── S-1：uid 进文件名之前必须过白名单（目录穿越）───────────────────────────
+
+test('parseAccountDoc：带路径分隔符/点号的 uid 一律判 invalid-uid', () => {
+  for (const uid of ['../../../../tmp/pwned', 'a/b', 'a\\b', '..', '.hidden', 'x'.repeat(200)]) {
+    const r = parseAccountDoc(JSON.stringify(cnDoc(uid)))
+    assert.equal(r.ok, false, uid)
+    assert.equal(r.error, 'invalid-uid', uid)
+  }
+  assert.equal(parseAccountDoc(JSON.stringify(cnDoc('4a82db90-3cdf-4a0a-84f4-b553f8a59492'))).ok, true, '真实 UUID 必须放行')
+})
+
+test('importFiles：uid 为穿越路径的文件被拒，池目录外不落任何文件', async (t) => {
+  const env = await makeEnv(t)
+  const outside = await mkdtemp(join(tmpdir(), 'wbp-outside-'))
+  t.after(() => rm(outside, { recursive: true, force: true }))
+  // 前提：穿越路径若被 join，确实会落到池目录之外的 outside 目录
+  const evilUid = `../../../../../../../../..${outside}/pwned`
+  const naive = join(env.root, 'import', 'cn', `${evilUid}.info`)
+  assert.ok(naive.startsWith(outside), `前提不成立：${naive}`)
+  const src = join(env.desktop, 'evil.info')
+  await fsp.writeFile(src, rawJson(cnDoc(evilUid)))
+  const errors = []
+  const metas = await env.pool.importFiles('cn', [src], { onError: (e) => errors.push(e) })
+  assert.equal(metas.length, 0)
+  assert.ok(errors.length >= 1, '要报错')
+  assert.equal(await exists(join(outside, 'pwned.info')), false, '池目录外绝不能出现文件')
+})
+
+test('snapshotPath / metaPath：不安全 uid 直接抛出（索引文件被篡改时的第二道防线）', async (t) => {
+  const env = await makeEnv(t)
+  assert.throws(() => env.pool.snapshotPath('cn', '../../x'), /invalid-uid/)
+  assert.throws(() => env.pool.metaPath('cn', '../../x'), /invalid-uid/)
+})

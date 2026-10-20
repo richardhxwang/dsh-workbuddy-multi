@@ -386,3 +386,37 @@ test('惯例档族：没有 defaultEffort 的候选不误注入（保持纯候�
     share.stop()
   })
 })
+
+test('包装：共享关了但 wantsWrap()（选档）还要这层包装时不卸；都不要了才还原', () => {
+  withHome((home) => {
+    writeVariant(home, 'ai', {
+      catalog: [MODEL],
+      records: { 'uid-a:': { [MODEL.id]: makeRecord('uid-a:', MODEL) } },
+    })
+    const { ctx, registrations } = makeCtx()
+    const adapter = makeAdapter('workbuddy-ai', [{ id: MODEL.id, reasoning: false, contextWindow: 300000 }])
+    registrations.set('workbuddy-ai', { adapter })
+    const original = adapter.piProvider.getModels
+    const { share } = makeShare({ home, ctx })
+    let tiersOn = true
+    share.wantsWrap = () => tiersOn
+    share.augment = (_key, models) => models.map((m) => ({ ...m, contextWindow: 1000000 }))
+    share.refresh()
+    share.ensureWrapped()
+
+    share.setEnabled(false)
+    assert.notEqual(adapter.piProvider.getModels, original, '选档还要包装，不能卸')
+    assert.equal(adapter.piProvider.getModels()[0].reasoning, false, '共享关了：档位注入停')
+    assert.equal(adapter.piProvider.getModels()[0].contextWindow, 1000000, '选档注入还在')
+
+    tiersOn = false
+    share.syncWrap()
+    assert.equal(adapter.piProvider.getModels, original, '都不要了才还原')
+
+    tiersOn = true
+    share.syncWrap()
+    assert.equal(adapter.piProvider.getModels()[0].contextWindow, 1000000, 'syncWrap 能重新包上')
+    share.stop()
+    assert.equal(adapter.piProvider.getModels, original, 'stop 一律还原')
+  })
+})

@@ -950,6 +950,8 @@ test('KeepAliveScheduler: KEEPALIVE_DEFAULTS 逐字照 PLAN §3.5.2，且 config
     jitterRatio: 0.1,
     concurrency: 2,
     skipActive: true,
+    requestTimeoutMs: 30_000,
+    sweepTimeoutMs: 300_000,
   })
   const scheduler = new KeepAliveScheduler({ config: { concurrency: 5, jitterRatio: 2 } })
   assert.equal(scheduler.config.concurrency, 5)
@@ -1847,4 +1849,76 @@ test('反向: 去掉并发上限后，并发峰值观测值必须超过 2（证�
   gated.release()
   await running
   assert.equal(observed, 5, '突变版会把 5 个账号一次性全发出去')
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// H-4：刷新请求必须有超时；一轮扫描挂住时看门狗必须让调度继续
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('refreshDocument：服务端接了连接却不回，请求在 timeoutMs 内被中止并判可重试', async () => {
+  let sawSignal = false
+  const fetchImpl = (_url, init) =>
+    new Promise((_resolve, reject) => {
+      if (init?.signal === undefined) return // 前提不成立时永远挂着（反向测试据此变红）
+      sawSignal = true
+      init.signal.addEventListener('abort', () => reject(init.signal.reason ?? new Error('aborted')))
+    })
+  const doc = {
+    account: { uid: 'u-hang', domain: 'www.workbuddy.cn' },
+    auth: { accessToken: 'plain-at', refreshToken: 'plain-rt', domain: 'www.workbuddy.cn' },
+  }
+  const result = await Promise.race([
+    refreshDocument({ variantKey: 'cn', document: doc, fetchImpl, now: () => BASE, timeoutMs: 50 }),
+    new Promise((resolve) => setTimeout(() => resolve('HUNG'), 2000)),
+  ])
+  assert.notEqual(result, 'HUNG', '请求没有超时，一直挂着')
+  assert.equal(sawSignal, true)
+  assert.equal(result.ok, false)
+  assert.equal(result.needsRelogin, false, '超时是网络问题，不能标需重新登录')
+})
+
+test('KeepAliveScheduler：一轮扫描永不结束时，看门狗放掉它并照常排下一轮', async () => {
+  const clock = fakeClock(BASE)
+  const pool = fakePool({ accounts: { cn: [meta('u1')] }, docs: docsFor(['u1']) })
+  const logger = fakeLogger()
+  const scheduler = new KeepAliveScheduler({
+    pool,
+    fetchImpl: () => new Promise(() => {}), // 无视 signal、永不 settle
+    now: clock.now,
+    logger,
+    config: { sweepMs: 60_000, sweepTimeoutMs: 10_000, setTimeout: clock.setTimeout, clearTimeout: clock.clearTimeout },
+  })
+  scheduler.start()
+  await flush()
+  await clock.advance(60_000) // 第一次 tick：sync 复用那个挂住的扫描
+  assert.equal(clock.pending, 1, '前提：此刻只剩看门狗一个定时器（扫描挂住了）')
+  await clock.advance(10_000) // 看门狗到点
+  assert.equal(clock.pending, 1, '看门狗之后必须重新排上下一轮')
+  assert.equal(scheduler.status().nextSweepAt, clock.now() + 60_000)
+  assert.ok(logger.lines.some((l) => l.startsWith('warn:') && l.includes('未结束')), JSON.stringify(logger.lines))
+  scheduler.stop()
+  assert.equal(clock.pending, 0)
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// H-5：pool 用返回值 {ok:false} 拒绝写回时，不能记成续期成功
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('KeepAliveScheduler：写回被 pool 以 {ok:false} 拒绝 → 记失败，不记成功', async () => {
+  const pool = fakePool({ accounts: { cn: [meta('u1')] }, docs: docsFor(['u1']) })
+  let writes = 0
+  pool.writeSnapshotDocument = async () => {
+    writes += 1
+    return { ok: false, error: 'region-mismatch' }
+  }
+  const { fetchImpl, calls } = recordingFetch(async () => jsonResponse(successPayload('x')))
+  const logger = fakeLogger()
+  const scheduler = new KeepAliveScheduler({ pool, fetchImpl, now: () => BASE, logger })
+  await scheduler.sync()
+  assert.equal(calls.length, 1, '前提：刷新请求确实发出并成功')
+  assert.equal(writes, 1, '前提：确实尝试了写回')
+  const stats = scheduler.status().stats
+  assert.equal(stats.ok, 0, '写回被拒不能算成功')
+  assert.equal(stats.failed, 1)
+  assert.ok(logger.lines.some((l) => l.includes('region-mismatch')), JSON.stringify(logger.lines))
 })

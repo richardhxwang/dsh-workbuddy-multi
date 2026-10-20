@@ -1223,3 +1223,289 @@ test('apply()：上下文选档 —— 逐模型选/一把切/恢复默认，写
   const failures = await host.disposeAll()
   assert.deepEqual(failures, [])
 })
+
+/* ── A1：设置页开关必须落盘，DSH 重启后沿用 ──────────────────────────────────
+ * 此前 setPinned / setReasoningCache / setCreditsChip / setContextTiers 只改内存，
+ * 重启就回到 Config 默认 —— 用户关掉的 chip、共享、选档全部悄悄回来。 */
+test('apply()：设置页四个开关落盘，重启（重新 apply 同一个池目录）后沿用', async (t) => {
+  const env = await makeIsolatedEnv(t)
+  await env.put('ai', aiDoc('uid-persist'))
+  const cfg = { poolRoot: env.poolRoot, pinned: false, scanMs: 60_000, keepalive: false, credits: false, healBaseline: false }
+  const boot = async () => {
+    const host = new FakeHost()
+    teardown(t, host)
+    apply(host, cfg, { now: () => Date.now() })
+    const ready = await waitFor(
+      async () => {
+        const s = await readStatus(host)
+        return s.ready ? s : undefined
+      },
+      { what: '插件就绪' },
+    )
+    return { host, ready }
+  }
+
+  const first = await boot()
+  // 前提：四个开关此刻都是 Config 默认（否则「重启后变了」证明不了是落盘带来的）
+  assert.equal(first.ready.composerChip, false)
+  assert.equal(first.ready.reasoning.enabled, true)
+  assert.equal(first.ready.contextTiers.enabled, true)
+  assert.equal(first.ready.groups.mode, 'merged')
+
+  await act(first.host, { action: 'setCreditsChip', on: true })
+  await act(first.host, { action: 'setReasoningCache', on: false })
+  await act(first.host, { action: 'setContextTiers', on: false })
+  await act(first.host, { action: 'setPinned', on: true })
+  assert.deepEqual(await first.host.disposeAll(), [])
+
+  const saved = JSON.parse(await readFile(join(env.poolRoot, 'settings.json'), 'utf8'))
+  assert.deepEqual(saved.values, { creditsChip: true, reasoningCache: false, contextTiers: false, pinned: true })
+
+  const second = await boot()
+  assert.equal(second.ready.composerChip, true, '重启后 chip 仍应显示')
+  assert.equal(second.ready.reasoning.enabled, false, '重启后共享仍应关闭')
+  assert.equal(second.ready.contextTiers.enabled, false, '重启后选档仍应关闭')
+  assert.equal(second.ready.groups.mode, 'per-account', '重启后分组方式仍应是按账号')
+  assert.deepEqual(await second.host.disposeAll(), [])
+})
+
+/* ── A2：关掉推理档位共享不能连带让上下文选档失效 ─────────────────────────────
+ * 选档的注入挂在共享的 getModels 包装上；旧的 setEnabled(false) 直接卸包装，
+ * 选档于是静默失效，而设置页仍显示「上下文选档：开启」和所选的 1M。 */
+test('apply()：关掉推理档位共享后，上下文选档仍然注入；两个都关才还原上游', async (t) => {
+  const env = await makeIsolatedEnv(t)
+  await env.put('ai', aiDoc('uid-decouple'))
+  await writeFile(
+    join(env.dshHome, '.workbuddy-ai-catalog.json'),
+    JSON.stringify({
+      version: 1,
+      entries: {
+        'uid-decouple:': {
+          account: 'uid-decouple:',
+          fetchedAtMs: Date.now(),
+          models: [{ id: 'kimi-k3', name: 'Kimi K3', contextWindow: 300000, supportedContextWindows: [300000, 1000000] }],
+        },
+      },
+    }),
+  )
+  const host = new FakeHost()
+  teardown(t, host)
+  const original = () => [{ id: 'kimi-k3', name: 'Kimi K3', contextWindow: 300000 }]
+  const piProvider = { id: 'workbuddy-ai', getModels: original }
+  const upstreamAdapter = { config: { profiles: () => new Map([['workbuddy-ai', { provider: 'workbuddy-ai', piProvider }]]) } }
+  host.llm.registerAdapter(['workbuddy-ai'], upstreamAdapter)
+  apply(
+    host,
+    { poolRoot: env.poolRoot, pinned: false, scanMs: 60_000, keepalive: false, credits: false, healBaseline: false },
+    { now: () => Date.now() },
+  )
+  await waitFor(
+    async () => {
+      const s = await readStatus(host)
+      return s.ready ? s : undefined
+    },
+    { what: '插件就绪' },
+  )
+  await act(host, { action: 'setContextTier', variantKey: 'ai', model: 'kimi-k3', tokens: 1000000 })
+  await waitFor(() => (piProvider.getModels()[0].contextWindow === 1000000 ? true : undefined), {
+    what: '选档注入生效',
+  })
+
+  await act(host, { action: 'setReasoningCache', on: false })
+  assert.equal((await readStatus(host)).reasoning.enabled, false, '前提：共享确实关了')
+  assert.equal(piProvider.getModels()[0].contextWindow, 1000000, '共享关了，选档注入必须还在')
+
+  await act(host, { action: 'setContextTiers', on: false })
+  assert.equal(piProvider.getModels, original, '两个都关了才把 getModels 还给上游')
+
+  await act(host, { action: 'setContextTiers', on: true })
+  assert.equal(piProvider.getModels()[0].contextWindow, 1000000, '只开选档也要重新包上')
+
+  assert.deepEqual(await host.disposeAll(), [])
+  assert.equal(piProvider.getModels, original, '卸载后一律还给上游')
+})
+
+/* ── A3：选目录默认档 = 不覆盖（下拉里不再出现「目录默认」和同值档两个状态）── */
+test('apply()：选档选中目录默认档时清掉覆盖，status 带出 default 供下拉去重', async (t) => {
+  const env = await makeIsolatedEnv(t)
+  await env.put('ai', aiDoc('uid-dflt'))
+  await writeFile(
+    join(env.dshHome, '.workbuddy-ai-catalog.json'),
+    JSON.stringify({
+      version: 1,
+      entries: {
+        'uid-dflt:': {
+          account: 'uid-dflt:',
+          fetchedAtMs: Date.now(),
+          models: [{ id: 'kimi-k3', name: 'Kimi K3', contextWindow: 300000, supportedContextWindows: [300000, 1000000] }],
+        },
+      },
+    }),
+  )
+  const host = new FakeHost()
+  teardown(t, host)
+  apply(
+    host,
+    { poolRoot: env.poolRoot, pinned: false, scanMs: 60_000, keepalive: false, credits: false, healBaseline: false },
+    { now: () => Date.now() },
+  )
+  const ready = await waitFor(
+    async () => {
+      const s = await readStatus(host)
+      return s.ready ? s : undefined
+    },
+    { what: '插件就绪' },
+  )
+  assert.equal(ready.contextTiers.tiers.ai['kimi-k3'].default, 300000)
+  await act(host, { action: 'setContextTier', variantKey: 'ai', model: 'kimi-k3', tokens: 1000000 })
+  assert.equal((await readStatus(host)).contextTiers.tiers.ai['kimi-k3'].current, 1000000)
+  await act(host, { action: 'setContextTier', variantKey: 'ai', model: 'kimi-k3', tokens: 300000 })
+  const after = (await readStatus(host)).contextTiers
+  assert.equal(after.tiers.ai['kimi-k3'].current, null, '选默认档就是恢复默认')
+  assert.equal(after.overridden, 0)
+  assert.deepEqual(await host.disposeAll(), [])
+})
+
+/* ── H-7：上游在、但启动中途抛错时，必须能自己重试，而不是卡到重启 DSH ─────── */
+test('apply()：启动中途失败（池目录不可用）→ 修好后下一次 status 轮询自动重试并就绪', async (t) => {
+  const env = await makeIsolatedEnv(t)
+  await env.put('ai', aiDoc('uid-boot'))
+  // 池目录的位置上放一个普通文件：pool.load() 建目录必然失败
+  await writeFile(env.poolRoot, 'not a directory')
+  const host = new FakeHost()
+  teardown(t, host)
+  apply(
+    host,
+    { poolRoot: env.poolRoot, pinned: false, scanMs: 60_000, keepalive: false, credits: false, healBaseline: false },
+    { now: () => Date.now(), bootRetryMs: 0 },
+  )
+  const failed = await waitFor(
+    async () => {
+      const s = await readStatus(host)
+      return (s.warnings ?? []).some((w) => String(w).includes('启动未完成')) ? s : undefined
+    },
+    { what: '前提：启动确实失败了' },
+  )
+  assert.equal(failed.ready, false)
+
+  const { rm } = await import('node:fs/promises')
+  await rm(env.poolRoot, { force: true })
+  const ready = await waitFor(
+    async () => {
+      const s = await readStatus(host)
+      return s.ready ? s : undefined
+    },
+    { what: '修好后自动重试并就绪' },
+  )
+  assert.equal(ready.ready, true)
+  assert.ok(!(ready.warnings ?? []).some((w) => String(w).includes('启动未完成')), '就绪后不再报启动失败')
+  assert.deepEqual(await host.disposeAll(), [])
+})
+
+/* ── 契约：客户端发出的每一个动作名，宿主都必须认 ─────────────────────────────
+ * v0.5.0/v0.5.1 的上下文选档整块失效，就是客户端代码引用了 ACTIONS.setContextTier
+ * 而映射表里没有这个键 → 发出去的是 action: undefined → 宿主 400 → 界面毫无反应。 */
+test('契约：client.js 里每个 ACTIONS.<名字> 都在映射表里，且宿主不报 unknown action', async (t) => {
+  const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')
+  const mapBody = source.match(/const ACTIONS = \{([\s\S]*?)\};/)?.[1]
+  assert.ok(mapBody !== undefined, '前提：找得到客户端的 ACTIONS 映射表')
+  const map = new Map([...mapBody.matchAll(/(\w+):\s*"(\w+)"/g)].map((m) => [m[1], m[2]]))
+  assert.ok(map.size >= 15, `前提：映射表解析出 ${map.size} 项`)
+  const used = new Set([...source.matchAll(/ACTIONS\.(\w+)/g)].map((m) => m[1]))
+  assert.ok(used.size >= 10, `前提：代码里引用了 ${used.size} 个动作`)
+  const missing = [...used].filter((name) => !map.has(name))
+  assert.deepEqual(missing, [], `代码引用了映射表里没有的动作：${missing.join(', ')}`)
+
+  const env = await makeIsolatedEnv(t)
+  const host = new FakeHost()
+  teardown(t, host)
+  apply(
+    host,
+    { poolRoot: env.poolRoot, pinned: false, scanMs: 60_000, keepalive: false, credits: false, healBaseline: false },
+    { now: () => Date.now() },
+  )
+  await waitFor(
+    async () => {
+      const s = await readStatus(host)
+      return s.ready ? s : undefined
+    },
+    { what: '插件就绪' },
+  )
+  const unknown = []
+  for (const action of new Set(map.values())) {
+    // 只读/无副作用的探测：空参数，宿主要么执行、要么因参数不合法 400 —— 但绝不能是 unknown action
+    if (action === 'loginStart' || action === 'refreshFromDesktop' || action === 'refreshAccount' || action === 'remove') continue
+    const res = await host.call(ACTION, { method: 'POST', body: { action } })
+    if (String(res.body?.error ?? '').startsWith('unknown action')) unknown.push(action)
+  }
+  assert.deepEqual(unknown, [], `宿主不认的动作：${unknown.join(', ')}`)
+  assert.deepEqual(await host.disposeAll(), [])
+})
+
+/* ── H-2：积分缓存启动即统计并周期刷新（以前只 new 不 start，默认配置下永远「未知」）── */
+test('apply()：积分统计在启动时自动算一轮，不需要任何人点「刷新积分」', async (t) => {
+  const env = await makeIsolatedEnv(t)
+  await env.put('ai', aiDoc('uid-credits'))
+  const host = new FakeHost()
+  teardown(t, host)
+  let calls = 0
+  apply(
+    host,
+    { poolRoot: env.poolRoot, pinned: false, scanMs: 60_000, keepalive: false, credits: true, healBaseline: false },
+    {
+      now: () => Date.now(),
+      createClient: () => ({
+        fetchCredits: async () => {
+          calls += 1
+          return { total: 42, accounts: [{ total: 42 }] }
+        },
+      }),
+    },
+  )
+  const ready = await waitFor(
+    async () => {
+      const s = await readStatus(host)
+      return s.ready && s.credits?.ai !== null && s.credits?.ai !== undefined ? s : undefined
+    },
+    { what: '启动后积分自动出现' },
+  )
+  assert.ok(calls >= 1, '确实发了计费请求')
+  assert.equal(ready.credits.ai.total, 42)
+  const actions = host.calls?.filter?.((c) => c?.body?.action === 'refreshCredits') ?? []
+  assert.equal(actions.length, 0, '前提：没有任何 refreshCredits 动作参与')
+  assert.deepEqual(await host.disposeAll(), [])
+})
+
+/* ── H-2 的回归：首轮统计必须等学到回环 origin（国内版加密凭据要借上游的数字）──
+ * 真机上第一次修 H-2 时首轮统计在启动瞬间就跑了，此时还没有任何请求进来、origin 未知，
+ * 国内版借不到数，被算成「已知 0 积分（0/1 个账号）」并缓存一个 TTL。 */
+test('apply()：首轮积分统计等到第一个回环请求之后才发，不在 origin 未知时抢跑', async (t) => {
+  const env = await makeIsolatedEnv(t)
+  await env.put('ai', aiDoc('uid-kick'))
+  const host = new FakeHost()
+  teardown(t, host)
+  let calls = 0
+  apply(
+    host,
+    { poolRoot: env.poolRoot, pinned: false, scanMs: 60_000, keepalive: false, credits: true, healBaseline: false },
+    {
+      now: () => Date.now(),
+      createClient: () => ({
+        fetchCredits: async () => {
+          calls += 1
+          return { total: 7, accounts: [{ total: 7 }] }
+        },
+      }),
+    },
+  )
+  await new Promise((resolve) => setTimeout(resolve, 400)) // 足够 bootstrap 跑完
+  assert.equal(calls, 0, '还没有任何请求进来（origin 未知）时不能发计费请求')
+  await waitFor(
+    async () => {
+      const s = await readStatus(host)
+      return s.ready && calls >= 1 ? s : undefined
+    },
+    { what: '第一个回环请求之后首轮统计开始' },
+  )
+  assert.deepEqual(await host.disposeAll(), [])
+})

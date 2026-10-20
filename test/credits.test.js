@@ -1363,3 +1363,34 @@ test('反向: 突变模块本身是可用的（否则上面的「断言失败」
     'summarizeVariant',
   ])
 })
+
+// ── H-6：外壳信号已中止时，晚到的 reject 不能变成 unhandledRejection（Node 22 会因此退出进程）──
+test('fetchAccountCredits：信号已中止 + 上游请求随后 reject → 不产生 unhandledRejection', async () => {
+  const seen = []
+  const onUnhandled = (reason) => seen.push(reason)
+  process.on('unhandledRejection', onUnhandled)
+  try {
+    const controller = new AbortController()
+    controller.abort()
+    let rejectLater
+    const client = {
+      fetchCredits: () =>
+        new Promise((_resolve, reject) => {
+          rejectLater = reject
+        }),
+    }
+    const result = await fetchAccountCredits({
+      credential: { accessToken: 'x' },
+      createClient: () => client,
+      timeoutMs: 5_000,
+      signal: controller.signal,
+    })
+    assert.equal(result.ok, false, '前提：走的是「已中止」早退分支')
+    assert.equal(typeof rejectLater, 'function', '前提：上游请求确实发出了')
+    rejectLater(new Error('HTTP 500 from upstream'))
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    assert.deepEqual(seen.map(String), [], '晚到的 reject 必须被接住')
+  } finally {
+    process.off('unhandledRejection', onUnhandled)
+  }
+})

@@ -90,8 +90,11 @@ test('一把切：max/min/default', () => {
     assert.equal(tiers.overrideFor('ai', 'kimi-k3'), 1000000)
     assert.equal(tiers.overrideFor('ai', 'gpt-6.1-sol'), 1000000)
     tiers.setAll('ai', 'min')
-    assert.equal(tiers.overrideFor('ai', 'kimi-k3'), 300000)
-    assert.equal(tiers.overrideFor('ai', 'gpt-6.1-sol'), 272000)
+    // 最低档正好是目录默认档：不存覆盖（= 恢复默认），生效窗口仍是最低档。
+    assert.equal(tiers.overrideFor('ai', 'kimi-k3'), undefined)
+    assert.equal(tiers.overrideFor('ai', 'gpt-6.1-sol'), undefined)
+    const models = [{ id: 'kimi-k3', contextWindow: 300000 }, { id: 'gpt-6.1-sol', contextWindow: 272000 }]
+    assert.deepEqual(tiers.augment('ai', models).map((m) => m.contextWindow), [300000, 272000])
     tiers.setAll('ai', 'default')
     assert.equal(tiers.overrideFor('ai', 'kimi-k3'), undefined)
   } finally {
@@ -123,10 +126,26 @@ test('status：按 variant 给出可选档与当前选择（设置页逐行选�
     const s = tiers.status()
     assert.equal(s.enabled, true)
     assert.equal(s.overridden, 1)
+    // 设置页「N 个模型有可选窗口档」读的字段（此前客户端读它、宿主不给，提示永远不显示）
+    assert.equal(s.tieredModels, 4, '两个版本各 2 个多档模型')
     assert.deepEqual(s.tiers.ai['kimi-k3'].options, [300000, 1000000])
+    assert.equal(s.tiers.ai['kimi-k3'].default, 300000)
     assert.equal(s.tiers.ai['kimi-k3'].current, 1000000)
     assert.equal(s.tiers.ai['gpt-6.1-sol'].current, null)
     assert.equal(s.tiers.ai['plain'], undefined)
+  } finally {
+    cleanup()
+  }
+})
+
+test('选中目录默认档 = 恢复默认，不存成覆盖', () => {
+  const { tiers, file, cleanup } = makeTiers()
+  try {
+    tiers.setTier('ai', 'kimi-k3', 1000000)
+    tiers.setTier('ai', 'kimi-k3', 300000)
+    assert.equal(tiers.overrideFor('ai', 'kimi-k3'), undefined)
+    assert.equal(tiers.status().overridden, 0)
+    assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')).tiers, {})
   } finally {
     cleanup()
   }

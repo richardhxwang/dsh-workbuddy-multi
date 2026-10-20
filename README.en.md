@@ -23,7 +23,8 @@ A companion plugin for [dsh-workbuddy-connect](https://github.com/corrinehu/dsh-
 - **Credit totals** — credits of all enabled accounts are summed per edition and shown next to the composer.
 - **Two grouping modes** — one model group per edition with rotation inside it, or one model group per account to pick directly in the model selector.
 - **Reasoning effort sharing** — upstream's "Reasoning levels" detection is per-account, so switching to an untested account makes the levels disappear. When enabled (the default), levels detected under any account apply to every account on the same version. Detection happens only on the settings page (per model, all at once, or re-detect); the composer never shows the "Reasoning levels" button. Models whose endpoint validates nothing get conventional low/medium/high/max (verified effective by measurement).
-- **Context window tiers** — pick each model's context window in settings (per model, or all-highest/all-lowest at once) for models that declare multiple window sizes (e.g. GPT-6.1-Sol at 272K/600K/1M); every model stays a single picker entry.
+- **Context window tiers** — pick each model's context window in the model list (per model, or set all to default/lowest/highest at once) for models that declare multiple window sizes (e.g. GPT-6.1-Sol at 272K/600K/1M); every model stays a single picker entry.
+- **Settings apply at once and persist** — the switches on the settings page (model groups, reasoning sharing, composer credit, context tiers) take effect immediately and are saved to `~/.dsh/workbuddy-pool/settings.json`, so they survive a DSH restart.
 - **One-stop upstream settings** — the upstream plugin's account state, credits, model-list refresh, model visibility, maximum context window, reasoning detection, and update check all live in this plugin's settings page; no need to visit the upstream card.
 - **Dependency auto-install** — if `dsh-workbuddy-connect` is missing, it is installed through the plugin market.
 
@@ -85,7 +86,7 @@ An account is paused and switched only when WorkBuddy reports a reset time, and 
 | Mode | Behavior |
 | --- | --- |
 | **Per edition** (default) | One model group for China and one for International; accounts rotate inside it. |
-| **Per account** | Each account has its own model group in the model selector. New accounts appear after DSH restarts. |
+| **Per account** | Each account has its own model group in the model selector. New accounts appear right away. |
 
 <p align="center">
   <img src="assets/dark-en.png" alt="Dark mode with per-account groups" width="860">
@@ -100,7 +101,7 @@ An account is paused and switched only when WorkBuddy reports a reset time, and 
 
 ## Configuration
 
-Usually unnecessary. To change defaults, add to the profile's `cordis.patch.yml`:
+Usually unnecessary. To change defaults, add to the profile's `cordis.patch.yml` (switches changed on the settings page take precedence):
 
 ```yaml
 - id: llm-workbuddy-multi
@@ -111,7 +112,8 @@ Usually unnecessary. To change defaults, add to the profile's `cordis.patch.yml`
     poolRoot: ''             # pool directory; empty means ~/.dsh/workbuddy-pool
     reasoningCache: true     # share detected reasoning levels across accounts; detection lives in settings, no composer button
     creditsChip: false       # the composer credit chip is hidden by default; true shows it
-    contextTiers: true       # split multi-window models into separate picker entries
+    contextTiers: true       # pick a context window per model
+    creditsIntervalMs: 300000 # background credit refresh interval (one billing request per account per round; 0 = off)
 ```
 
 ## Development
